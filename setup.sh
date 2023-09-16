@@ -1,26 +1,28 @@
 #!/bin/bash
 
-# Update package lists and upgrade existing packages
 apt update && apt upgrade -y
 
-# Install Node.js LTS and NVM
+apt install -y unattended-upgrades
+dpkg-reconfigure --priority=low unattended-upgrades -f noninteractive
+
+# Dev env
+apt install -y vim
 curl -sL https://deb.nodesource.com/setup_lts.x | bash -
 apt install -y nodejs
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.38.0/install.sh | bash
-
-# Install Python3 and set it as the default for the `python` command
 apt install -y python3 python3-pip
 update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-
-# Install tmux
-apt install -y tmux
+apt install -y postgresql postgresql-contrib
 
 # Setup .bashrc
 echo "PS1='\[\e[34m\](\W)>\[\e[0m\] '" >> ~/.bashrc
 echo "export EDITOR=vim" >> ~/.bashrc
 echo "export TERM=xterm-256color" >> ~/.bashrc
-echo "
+
 # tumux
+apt install -y tmux
+
+echo "
 SESSION_NAME='tboi'
 
 if command -v tmux &> /dev/null; then
@@ -33,22 +35,41 @@ if command -v tmux &> /dev/null; then
     tmux attach-session -t \"\$SESSION_NAME\"
   fi
 fi
+" >> ~/.bash_profile
 
-if [ -f ~/.bashrc ]; then
-  source ~/.bashrc
-fi" >> ~/.bash_profile
+echo "Security setup"
 
-# Install vim
-apt install -y vim
+apt install ufw -y
+apt install fail2ban
 
-# Install PostgreSQL LTS (12 as of Ubuntu 20.04 LTS)
-apt install -y postgresql postgresql-contrib
+read -p "Enter the SSH port #: " ssh_port
 
-# Change SSH port to 777 and disable port 22
-sed -i 's/#Port 22/Port 777/' /etc/ssh/sshd_config
+if [[ ! "$ssh_port" =~ ^[0-9]+$ ]]; then
+  echo "Invalid port number. Exiting."
+  exit 1
+fi
+
+ufw enable
+ufw allow $ssh_port/tcp
+ufw default deny incoming
+ufw default allow outgoing
+sed -i "s/#Port 22/Port $ssh_port/g" /etc/ssh/sshd_config
+sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/g' /etc/ssh/sshd_config
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+
 systemctl restart sshd
+ufw reload
 
-# Reload bash settings
-source ~/.bashrc
+echo "[sshd]
+enabled = true
+port = $ssh_port
+action = ufw
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600" | tee -a /etc/fail2ban/jail.local
 
-echo "Environment setup complete."
+systemctl enable fail2ban
+systemctl start fail2ban
+systemctl reload fail2ban
+
+echo "Environment setup complete... remember to source ~/.bashrc"
